@@ -1,533 +1,806 @@
 --[[
-    ╔══════════════════════════════════════════════════════════════╗
-    ║           Delta Executor - ReplicatedStorage Dumper           ║
-    ║                    Loadstring Ready v2.0                     ║
-    ╚══════════════════════════════════════════════════════════════╝
-    
-    ส่วนประกอบ:
-      1. Config     → ตั้งค่าการ Dump + โฟลเดอร์บันทึก
-      2. Helper     → ดึง Properties แปลงค่า JSON-safe
-      3. Core       → Recursive Dump Hierarchy
-      4. Export     → writefile / setclipboard / rconsoleprint
-      5. UI         → หน้าต่างกดใช้งานบนมือถือ/PC
-      6. Quick      → ฟังก์ชันสำเร็จรูป
+    ReplicatedStorage Dumper v2.0
+    - ดึง/Backup ทุกอย่างใน ReplicatedStorage หรือ Service ใดก็ได้
+    - Remote Spy: ดักฟังทุก Remote Call (Client/Server)
+    - Remote Hook: แก้ไข Args / บล็อค / ดัดแปลง Return
+    - Dump All Remotes: สแกนหาทุก Remote ในเกม + Auto-Watch
+    วางใน ReplicatedStorage
 ]]
 
--- ============================================
--- EXECUTOR CHECK
--- ============================================
-if not writefile then
-    warn("❌ สคริปต์นี้ต้องใช้กับ Executor ที่มี file API (Delta, Fluxus, etc.)")
-    return
-end
-
--- ============================================
--- SERVICES
--- ============================================
+local ReplicatedStorageDumper = {}
 local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
--- ============================================
--- SECTION 1: CONFIG
--- ============================================
-local Config = {
-    MaxDepth            = 50,
-    SaveScripts         = true,
-    SaveValues          = true,
-    SaveAttributes      = true,
+-- ============================================================
+-- ตรวจสอบ Exploit API
+-- ============================================================
+local _hookmetamethod = hookmetamethod
+local _getnamecallmethod = getnamecallmethod
+local _newcclosure = newcclosure or function(f) return f end
+local _hookfunction = hookfunction
+local _isExploitEnv = (_hookmetamethod ~= nil) and (_getnamecallmethod ~= nil)
+
+-- ============================================================
+-- ตั้งค่าเริมต้น
+-- ============================================================
+ReplicatedStorageDumper.Config = {
+    MaxDepth = 50,
+    SaveScripts = true,
+    SaveValues = true,
+    SaveAttributes = true,
     IncludeRobloxLocked = false,
-    OutputFolder        = "Delta_Dumps/",     -- โฟลเดอร์เก็บไฟล์
-    AutoSave            = true,                -- บันทึกอัตโนมัติหลัง Dump
-    CopyToClipboard     = false,               -- คัดลอก JSON อัตโนมัติ
-    UseConsole          = rconsoleprint ~= nil -- ใช้ External Console ถ้ามี
 }
 
--- สร้างโฟลเดอร์ถ้ายังไม่มี
-if makefolder and not isfolder(Config.OutputFolder) then
-    makefolder(Config.OutputFolder)
-end
-
--- ตาราง Properties ตาม ClassName
+-- ============================================================
+-- CLASS_PROPERTIES (เดม)
+-- ============================================================
 local CLASS_PROPERTIES = {
-    Script       = {"Source", "Enabled", "RunContext"},
+    Script = {"Source", "Enabled", "RunContext"},
     ModuleScript = {"Source"},
-    LocalScript  = {"Source", "Enabled", "RunContext"},
-    RemoteEvent     = {},
-    RemoteFunction  = {},
-    BindableEvent   = {},
-    BindableFunction= {},
-    Folder       = {},
-    Configuration= {},
-    Model        = {},
-    StringValue  = {"Value"},
-    IntValue     = {"Value"},
-    BoolValue    = {"Value"},
-    NumberValue  = {"Value"},
-    Color3Value  = {"Value"},
+    LocalScript = {"Source", "Enabled", "RunContext"},
+    RemoteEvent = {},
+    RemoteFunction = {},
+    UnreliableRemoteEvent = {},
+    BindableEvent = {},
+    BindableFunction = {},
+    Folder = {},
+    StringValue = {"Value"},
+    IntValue = {"Value"},
+    BoolValue = {"Value"},
+    NumberValue = {"Value"},
+    Color3Value = {"Value"},
     Vector3Value = {"Value"},
-    CFrameValue  = {"Value"},
-    ObjectValue  = {"Value"},
-    ScreenGui   = {"Enabled", "ResetOnSpawn", "ZIndexBehavior"},
-    TextLabel   = {"Text", "TextColor3", "TextSize", "Font", "BackgroundColor3", "Size", "Position", "AnchorPoint"},
-    TextButton  = {"Text", "TextColor3", "TextSize", "Font", "BackgroundColor3", "Size", "Position", "AnchorPoint"},
-    TextBox     = {"Text", "PlaceholderText", "TextColor3", "TextSize", "Font", "BackgroundColor3", "Size", "Position"},
-    Frame       = {"BackgroundColor3", "BackgroundTransparency", "Size", "Position", "AnchorPoint"},
-    ScrollingFrame = {"CanvasSize", "ScrollBarThickness", "BackgroundColor3", "Size", "Position"},
-    ImageLabel  = {"Image", "ImageColor3", "Size", "Position"},
-    ImageButton = {"Image", "ImageColor3", "Size", "Position"},
-    Part        = {"Shape", "Size", "Position", "Orientation", "Color", "Material", "Transparency", "CanCollide", "Anchored"},
-    MeshPart    = {"MeshId", "TextureID", "Size", "Position", "Orientation", "Color", "Material", "Transparency"},
-    Sound       = {"SoundId", "Volume", "PlaybackSpeed", "Looped", "Playing"},
-    Animation   = {"AnimationId"},
-    Decal       = {"Texture"},
-    Texture     = {"Texture"},
+    CFrameValue = {"Value"},
+    ObjectValue = {"Value"},
+    ScreenGui = {"Enabled", "ResetOnSpawn", "ZIndexBehavior"},
+    TextLabel = {"Text", "TextColor3", "TextSize", "Font", "BackgroundColor3", "Size", "Position"},
+    TextButton = {"Text", "TextColor3", "TextSize", "Font", "BackgroundColor3", "Size", "Position"},
+    Frame = {"BackgroundColor3", "BackgroundTransparency", "Size", "Position"},
+    Part = {"Shape", "Size", "Position", "Orientation", "Color", "Material", "Transparency", "CanCollide", "Anchored"},
+    MeshPart = {"MeshId", "TextureID", "Size", "Position", "Orientation", "Color", "Material"},
+    Sound = {"SoundId", "Volume", "PlaybackSpeed", "Looped", "Playing"},
+    Animation = {"AnimationId"},
+    Decal = {"Texture"},
+    Texture = {"Texture"},
 }
 
--- ============================================
--- SECTION 2: HELPER - getProperties
--- ============================================
-local function log(msg, color)
-    if Config.UseConsole and rconsoleprint then
-        if color then
-            rconsoleprint("[" .. msg .. "]\n")
-        else
-            rconsoleprint(msg .. "\n")
-        end
+-- ============================================================
+-- Helper: ทำ serialize ค่าต่างๆ
+-- ============================================================
+local function serializeValue(value)
+    local t = typeof(value)
+    if t == "Instance" then
+        local ok, name = pcall(function() return value:GetFullName() end)
+        return { _type = "Instance", value = ok and name or "?" }
+    elseif t == "Color3" then
+        return { _type = "Color3", R = value.R, G = value.G, B = value.B }
+    elseif t == "Vector3" then
+        return { _type = "Vector3", X = value.X, Y = value.Y, Z = value.Z }
+    elseif t == "CFrame" then
+        return { _type = "CFrame", components = { value:GetComponents() } }
+    elseif t == "EnumItem" then
+        return { _type = "Enum", value = tostring(value) }
+    elseif t == "BrickColor" then
+        return { _type = "BrickColor", value = tostring(value) }
+    elseif t == "table" then
+        local ok, json = pcall(function() return HttpService:JSONEncode(value) end)
+        if ok then return value end
+        return { _type = "table", value = "unserializable" }
     else
-        print(msg)
+        return value
     end
 end
 
-local function getProperties(instance)
+local function getProperties(instance, config)
     local className = instance.ClassName
     local props = CLASS_PROPERTIES[className] or {"Name", "ClassName"}
-    local data = {
-        Name      = instance.Name,
-        ClassName = className
-    }
-    
+    local data = { Name = instance.Name, ClassName = className }
+
     for _, propName in ipairs(props) do
-        local success, value = pcall(function()
-            return instance[propName]
-        end)
-        
+        local success, value = pcall(function() return instance[propName] end)
         if success then
-            local valType = typeof(value)
-            
-            if valType == "Instance" then
-                data[propName] = value:GetFullName()
-            elseif valType == "Color3" then
-                data[propName] = {R = value.R, G = value.G, B = value.B, _type = "Color3"}
-            elseif valType == "Vector3" then
-                data[propName] = {X = value.X, Y = value.Y, Z = value.Z, _type = "Vector3"}
-            elseif valType == "Vector2" then
-                data[propName] = {X = value.X, Y = value.Y, _type = "Vector2"}
-            elseif valType == "CFrame" then
-                local pos = value.Position
-                local rot = {value:ToEulerAnglesXYZ()}
-                data[propName] = {X = pos.X, Y = pos.Y, Z = pos.Z, RX = rot[1], RY = rot[2], RZ = rot[3], _type = "CFrame"}
-            elseif valType == "UDim2" then
-                data[propName] = {ScaleX = value.X.Scale, OffsetX = value.X.Offset, ScaleY = value.Y.Scale, OffsetY = value.Y.Offset, _type = "UDim2"}
-            elseif valType == "EnumItem" then
-                data[propName] = tostring(value)
-            elseif valType == "BrickColor" then
-                data[propName] = tostring(value)
-            elseif valType == "NumberRange" then
-                data[propName] = {Min = value.Min, Max = value.Max, _type = "NumberRange"}
-            elseif valType == "NumberSequence" or valType == "ColorSequence" then
-                data[propName] = tostring(value)
-            else
-                data[propName] = value
-            end
+            data[propName] = serializeValue(value)
         end
     end
-    
-    if Config.SaveAttributes then
+
+    if config.SaveAttributes then
         local attrs = instance:GetAttributes()
-        if next(attrs) ~= nil then
-            data._attributes = attrs
-        end
+        if next(attrs) then data._attributes = attrs end
     end
-    
+
     return data
 end
 
--- ============================================
--- SECTION 3: CORE - dumpInstance
--- ============================================
-local function dumpInstance(instance, depth)
+-- ============================================================
+-- SECTION: dumpInstance / toJSON / saveToFile (เดม)
+-- ============================================================
+function ReplicatedStorageDumper.dumpInstance(instance, config, depth)
+    config = config or ReplicatedStorageDumper.Config
     depth = depth or 0
-    
-    if depth > Config.MaxDepth then
-        return {
-            Name       = instance.Name,
-            ClassName  = instance.ClassName,
-            _truncated = true,
-            _reason    = "MaxDepth: " .. Config.MaxDepth
-        }
+    if depth > config.MaxDepth then
+        return { Name = instance.Name, ClassName = instance.ClassName, _truncated = true }
     end
-    
-    local data = getProperties(instance)
+
+    local data = getProperties(instance, config)
     local children = instance:GetChildren()
-    
     if #children > 0 then
         data._children = {}
         for _, child in ipairs(children) do
-            if not Config.IncludeRobloxLocked then
-                local ok, isLocked = pcall(function()
-                    return child.RobloxLocked
-                end)
-                if ok and isLocked then
-                    continue
-                end
+            if not config.IncludeRobloxLocked then
+                local ok, locked = pcall(function() return child.RobloxLocked end)
+                if ok and locked then continue end
             end
-            table.insert(data._children, dumpInstance(child, depth + 1))
+            table.insert(data._children, ReplicatedStorageDumper.dumpInstance(child, config, depth + 1))
         end
     end
-    
     return data
 end
 
--- ============================================
--- SECTION 4: EXPORT
--- ============================================
-local LastJSON = ""
-
-local function toJSON(data, pretty)
+function ReplicatedStorageDumper.toJSON(data, pretty)
     pretty = pretty ~= false
-    local success, result = pcall(function()
-        return HttpService:JSONEncode(data)
-    end)
-    
+    local success, result = pcall(function() return HttpService:JSONEncode(data) end)
     if success then
         if pretty then
-            result = result:gsub("([%{%}%[%]%,])", "%1\n"):gsub("\":", "\": "):gsub("\n\n+", "\n")
+            result = result:gsub("},", "},\n"):gsub("%],", "%],\n")
         end
         return result
     else
-        log("❌ JSON Encode failed: " .. tostring(result))
+        warn("[Dumper] JSON Encode failed: " .. tostring(result))
         return nil
     end
 end
 
-local function saveToFile(data, filename)
-    filename = filename or ("Dump_" .. os.time() .. ".json")
-    if not string.match(filename, "%.json$") then
-        filename = filename .. ".json"
+function ReplicatedStorageDumper.saveToFile(data, filename)
+    filename = filename or ("Dump_" .. os.time())
+    local json = ReplicatedStorageDumper.toJSON(data, false)
+    if not json then return false end
+
+    if RunService:IsStudio() then
+        local folder = game.ServerStorage:FindFirstChild("StorageDumps")
+        if not folder then
+            folder = Instance.new("Folder")
+            folder.Name = "StorageDumps"
+            folder.Parent = game.ServerStorage
+        end
+        local module = Instance.new("ModuleScript")
+        module.Name = filename
+        module.Source = "-- Storage Dump\n-- Generated: " .. os.date("%Y-%m-%d %H:%M:%S") ..
+            "\n-- Size: " .. tostring(#json) .. " chars\nreturn [[" .. json .. "]]"
+        module.Parent = folder
+        print(string.format("[Dumper] ✅ Saved: ServerStorage.StorageDumps.%s (%d chars)", filename, #json))
+        return true
+    else
+        print("[Dumper] ⚠️ Live Game - JSON Length: " .. tostring(#json))
+        return json
     end
-    
-    local filepath = Config.OutputFolder .. filename
-    local json = toJSON(data, false)
-    
-    if not json then
+end
+
+function ReplicatedStorageDumper.dumpReplicatedStorage(config)
+    local rs = game:GetService("ReplicatedStorage")
+    local data = ReplicatedStorageDumper.dumpInstance(rs, config)
+    data._dumpInfo = {
+        timestamp = os.time(),
+        date = os.date("%Y-%m-%d %H:%M:%S"),
+        totalInstances = #rs:GetDescendants(),
+    }
+    return data
+end
+
+function ReplicatedStorageDumper.dumpService(serviceName, config)
+    local service = game:GetService(serviceName)
+    local data = ReplicatedStorageDumper.dumpInstance(service, config)
+    data._dumpInfo = {
+        service = serviceName,
+        timestamp = os.time(),
+        totalInstances = #service:GetDescendants(),
+    }
+    return data
+end
+
+-- ============================================================
+-- ██████  SECTION: REMOTE SPY  ██████
+-- ============================================================
+local Spy = {
+    Enabled = false,
+    Logs = {},
+    MaxLogs = 2000,
+    FilterMode = "Blacklist",   -- "Blacklist" | "Whitelist"
+    Filters = {},                -- {[remoteName/path] = true}
+    WatchList = {},              -- {[remoteName] = true} → real-time print
+    OnCall = nil,                -- function(entry) end
+    _hooked = false,
+    _originalNamecall = nil,
+}
+ReplicatedStorageDumper.RemoteSpy = Spy
+
+-- --- Filter ---
+function Spy:AddFilter(remoteName)
+    self.Filters[remoteName] = true
+end
+
+function Spy:RemoveFilter(remoteName)
+    self.Filters[remoteName] = nil
+end
+
+function Spy:ClearFilters()
+    self.Filters = {}
+end
+
+function Spy:_shouldLog(remote)
+    local name = remote.Name
+    local path
+    local ok, _path = pcall(function() return remote:GetFullName() end)
+    path = ok and _path or name
+
+    if self.FilterMode == "Whitelist" then
+        return self.Filters[name] == true or self.Filters[path] == true
+    else -- Blacklist
+        return self.Filters[name] ~= true and self.Filters[path] ~= true
+    end
+end
+
+-- --- Watch (real-time print) ---
+function Spy:Watch(remoteName)
+    self.WatchList[remoteName] = true
+end
+
+function Spy:Unwatch(remoteName)
+    self.WatchList[remoteName] = nil
+end
+
+-- --- Serialize Args ---
+local function serializeArgs(args)
+    local out = {}
+    for i, arg in ipairs(args) do
+        local ok, val = pcall(serializeValue, arg)
+        out[i] = ok and val or { _type = "error", value = tostring(arg) }
+    end
+    return out
+end
+
+-- --- Log ---
+function Spy:Log(remote, method, args, direction)
+    if not self:_shouldLog(remote) then return end
+
+    local ok, path = pcall(function() return remote:GetFullName() end)
+    local entry = {
+        id = #self.Logs + 1,
+        timestamp = os.clock(),
+        time = os.date("%H:%M:%S"),
+        remote = remote.Name,
+        path = ok and path or remote.Name,
+        className = remote.ClassName,
+        method = method,
+        direction = direction,
+        argsCount = #args,
+        args = serializeArgs(args),
+    }
+
+    table.insert(self.Logs, entry)
+    if #self.Logs > self.MaxLogs then
+        table.remove(self.Logs, 1)
+    end
+
+    -- Real-time watch
+    if self.WatchList[remote.Name] then
+        print(string.format(
+            "🔍 [Spy] %s → %s (%s) | Args[%d]: %s",
+            entry.time, remote.Name, direction, #args,
+            HttpService:JSONEncode(entry.args):sub(1, 200)
+        ))
+    end
+
+    -- Callback
+    if self.OnCall then
+        pcall(self.OnCall, entry)
+    end
+
+    return entry
+end
+
+-- --- Clear / Search / Stats ---
+function Spy:ClearLogs()
+    self.Logs = {}
+end
+
+function Spy:SearchLogs(query)
+    query = query:lower()
+    local results = {}
+    for _, entry in ipairs(self.Logs) do
+        if entry.remote:lower():find(query, 1, true) or entry.path:lower():find(query, 1, true) then
+            table.insert(results, entry)
+        end
+    end
+    return results
+end
+
+function Spy:SearchByArg(query)
+    query = tostring(query):lower()
+    local results = {}
+    for _, entry in ipairs(self.Logs) do
+        local ok, json = pcall(function() return HttpService:JSONEncode(entry.args):lower() end)
+        if ok and json:find(query, 1, true) then
+            table.insert(results, entry)
+        end
+    end
+    return results
+end
+
+function Spy:GetStats()
+    local stats = {
+        totalCalls = #self.Logs,
+        byRemote = {},
+        byMethod = {},
+        byDirection = {},
+        byClass = {},
+    }
+    for _, e in ipairs(self.Logs) do
+        stats.byRemote[e.remote] = (stats.byRemote[e.remote] or 0) + 1
+        stats.byMethod[e.method] = (stats.byMethod[e.method] or 0) + 1
+        stats.byDirection[e.direction] = (stats.byDirection[e.direction] or 0) + 1
+        stats.byClass[e.className] = (stats.byClass[e.className] or 0) + 1
+    end
+    return stats
+end
+
+function Spy:GetTopRemotes(n)
+    n = n or 10
+    local stats = self:GetStats()
+    local sorted = {}
+    for name, count in pairs(stats.byRemote) do
+        table.insert(sorted, { name = name, count = count })
+    end
+    table.sort(sorted, function(a, b) return a.count > b.count end)
+    local out = {}
+    for i = 1, math.min(n, #sorted) do out[i] = sorted[i] end
+    return out
+end
+
+function Spy:ExportLogs()
+    return ReplicatedStorageDumper.toJSON({
+        exportTime = os.date("%Y-%m-%d %H:%M:%S"),
+        totalLogs = #self.Logs,
+        logs = self.Logs,
+    }, true)
+end
+
+-- --- Start / Stop ---
+function Spy:Start()
+    if not _isExploitEnv then
+        warn("[RemoteSpy] ⚠️ ตองใช Exploit Environment (hookmetamethod / getnamecallmethod)")
         return false
     end
-    
-    LastJSON = json
-    writefile(filepath, json)
-    log("✅ Saved: " .. filepath .. " (" .. tostring(#json) .. " chars)")
+    if self._hooked then
+        self.Enabled = true
+        return true
+    end
+
+    self.Enabled = true
+    self._hooked = true
+
+    self._originalNamecall = _hookmetamethod(game, "__namecall", _newcclosure(function(self, ...)
+        local method = _getnamecallmethod()
+
+        -- ตรวจว่าเปน Remote หรือไม
+        local remoteType = nil
+        local direction = nil
+
+        if method == "FireServer" then
+            if self:IsA("RemoteEvent") then remoteType = "RemoteEvent"; direction = "Client→Server"
+            elseif self:IsA("UnreliableRemoteEvent") then remoteType = "UnreliableRemoteEvent"; direction = "Client→Server"
+            end
+        elseif method == "InvokeServer" and self:IsA("RemoteFunction") then
+            remoteType = "RemoteFunction"; direction = "Client→Server"
+        elseif method == "FireClient" and self:IsA("RemoteEvent") then
+            remoteType = "RemoteEvent"; direction = "Server→Client"
+        elseif method == "FireAllClients" and self:IsA("RemoteEvent") then
+            remoteType = "RemoteEvent"; direction = "Server→AllClients"
+        elseif method == "InvokeClient" and self:IsA("RemoteFunction") then
+            remoteType = "RemoteFunction"; direction = "Server→Client"
+        end
+
+        if direction and Spy.Enabled then
+            local args = { ... }
+            local Hook = ReplicatedStorageDumper.RemoteHook
+
+            -- ดึง hook ของ remote ตัวนี
+            local remoteName = self.Name
+            local hookData = Hook.Hooks[remoteName] or Hook.Hooks[self:GetFullName()]
+
+            -- ตรวจบล็อค
+            if Hook.BlockedRemotes[remoteName] or Hook.BlockedRemotes[self:GetFullName()] then
+                Spy:Log(self, method, args, direction .. " [BLOCKED]")
+                if remoteType == "RemoteFunction" then return nil end
+                return
+            end
+
+            -- แกไข args ผาน onCall
+            if hookData and hookData.onCall then
+                local ok, modArgs = pcall(hookData.onCall, self, method, args)
+                if ok and modArgs ~= nil then
+                    args = modArgs
+                end
+            end
+
+            -- บันทึก log
+            Spy:Log(self, method, args, direction)
+
+            -- เรียก original
+            if remoteType == "RemoteFunction" then
+                local returnVals = { self:InvokeServer(unpack(args)) }
+                -- แกไข return ผาน onReturn
+                if hookData and hookData.onReturn then
+                    local ok, modReturn = pcall(hookData.onReturn, self, method, unpack(returnVals))
+                    if ok and modReturn ~= nil then
+                        return modReturn
+                    end
+                end
+                return unpack(returnVals)
+            else
+                return self[method](self, unpack(args))
+            end
+        end
+
+        return Spy._originalNamecall(self, ...)
+    end))
+
+    print("[RemoteSpy] ✅ เริมดักฟัง Remotes แลว (hookmetamethod __namecall)")
     return true
 end
 
-local function copyLastJSON()
-    if LastJSON ~= "" and setclipboard then
-        setclipboard(LastJSON)
-        log("📋 Copied to clipboard! (" .. tostring(#LastJSON) .. " chars)")
-        return true
-    else
-        log("⚠️ Nothing to copy")
-        return false
-    end
+function Spy:Stop()
+    self.Enabled = false
+    print("[RemoteSpy] ⏹️ หยุดดักฟัง (Enabled = false)")
 end
 
-local function listDumps()
-    if not listfiles then
-        log("❌ listfiles not supported")
-        return {}
-    end
-    
-    local files = listfiles(Config.OutputFolder)
-    log("📁 Files in " .. Config.OutputFolder .. ":")
-    for _, f in ipairs(files) do
-        log("   • " .. f)
-    end
-    return files
-end
-
--- ============================================
--- SECTION 5: UI (ScreenGui)
--- ============================================
-local UI = {}
-local StatusLabel = nil
-
-local function updateStatus(text)
-    if StatusLabel then
-        StatusLabel.Text = "Status: " .. text
-    end
-    log(text)
-end
-
-local function createButton(parent, text, pos, color, callback)
-    local btn = Instance.new("TextButton")
-    btn.Text = text
-    btn.Size = UDim2.new(0, 170, 0, 36)
-    btn.Position = pos
-    btn.BackgroundColor3 = color or Color3.fromRGB(40, 40, 60)
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 13
-    btn.BorderSizePixel = 0
-    btn.Parent = parent
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-    
-    btn.MouseButton1Click:Connect(function()
-        pcall(callback)
-    end)
-    
-    return btn
-end
-
-function UI:Init()
-    -- ลบ UI เก่าถ้ามี
-    pcall(function()
-        local old = CoreGui:FindFirstChild("DeltaDumperUI")
-        if old then old:Destroy() end
-    end)
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "DeltaDumperUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    -- Parent ใน CoreGui ถ้าได้ (Delta มักอนุญาต)
-    local success = pcall(function()
-        screenGui.Parent = CoreGui
-    end)
-    if not success then
-        screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    end
-    
-    -- Main Frame
-    local frame = Instance.new("Frame")
-    frame.Name = "MainFrame"
-    frame.Size = UDim2.new(0, 380, 0, 420)
-    frame.Position = UDim2.new(0.5, -190, 0.5, -210)
-    frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
-    frame.BorderSizePixel = 0
-    frame.Active = true
-    frame.Draggable = true          -- ลากได้บน PC
-    frame.Parent = screenGui
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 12)
-    corner.Parent = frame
-    
-    -- Header
-    local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 44)
-    header.BackgroundColor3 = Color3.fromRGB(28, 28, 45)
-    header.BorderSizePixel = 0
-    header.Parent = frame
-    
-    local headerCorner = Instance.new("UICorner")
-    headerCorner.CornerRadius = UDim.new(0, 12)
-    headerCorner.Parent = header
-    
-    local title = Instance.new("TextLabel")
-    title.Text = "📦 Delta Dumper"
-    title.Size = UDim2.new(1, -50, 1, 0)
-    title.Position = UDim2.new(0, 15, 0, 0)
-    title.BackgroundTransparency = 1
-    title.TextColor3 = Color3.fromRGB(100, 255, 218)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 18
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Parent = header
-    
-    -- Close Button
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Text = "✕"
-    closeBtn.Size = UDim2.new(0, 36, 0, 36)
-    closeBtn.Position = UDim2.new(1, -40, 0, 4)
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 16
-    closeBtn.Parent = header
-    closeBtn.MouseButton1Click:Connect(function()
-        screenGui:Destroy()
-    end)
-    
-    -- Status
-    StatusLabel = Instance.new("TextLabel")
-    StatusLabel.Text = "Status: Ready"
-    StatusLabel.Size = UDim2.new(1, -20, 0, 22)
-    StatusLabel.Position = UDim2.new(0, 10, 0, 52)
-    StatusLabel.BackgroundTransparency = 1
-    StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-    StatusLabel.Font = Enum.Font.Gotham
-    StatusLabel.TextSize = 12
-    StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-    StatusLabel.Parent = frame
-    
-    -- Buttons Grid
-    local btnY = 80
-    
-    createButton(frame, "Dump ReplicatedStorage", UDim2.new(0, 10, 0, btnY), 
-        Color3.fromRGB(45, 55, 85), function()
-            updateStatus("Dumping ReplicatedStorage...")
-            local data = {
-                Name = "ReplicatedStorage",
-                ClassName = "ReplicatedStorage",
-                _dumpInfo = {
-                    timestamp = os.time(),
-                    date = os.date("%Y-%m-%d %H:%M:%S"),
-                    totalInstances = #game:GetService("ReplicatedStorage"):GetDescendants()
-                },
-                _children = dumpInstance(game:GetService("ReplicatedStorage"))._children
-            }
-            if Config.AutoSave then
-                saveToFile(data, "ReplicatedStorage_" .. os.time())
-            end
-            updateStatus("✅ ReplicatedStorage dumped!")
-        end)
-    
-    createButton(frame, "Dump Workspace", UDim2.new(0, 195, 0, btnY), 
-        Color3.fromRGB(45, 55, 85), function()
-            updateStatus("Dumping Workspace...")
-            local data = {
-                Name = "Workspace",
-                ClassName = "Workspace",
-                _dumpInfo = {
-                    timestamp = os.time(),
-                    date = os.date("%Y-%m-%d %H:%M:%S"),
-                    totalInstances = #workspace:GetDescendants()
-                },
-                _children = dumpInstance(workspace)._children
-            }
-            if Config.AutoSave then
-                saveToFile(data, "Workspace_" .. os.time())
-            end
-            updateStatus("✅ Workspace dumped!")
-        end)
-    
-    btnY = btnY + 46
-    
-    createButton(frame, "Dump LocalPlayer", UDim2.new(0, 10, 0, btnY), 
-        Color3.fromRGB(55, 45, 75), function()
-            updateStatus("Dumping LocalPlayer...")
-            local data = {
-                Name = LocalPlayer.Name,
-                ClassName = "Player",
-                _dumpInfo = {
-                    timestamp = os.time(),
-                    date = os.date("%Y-%m-%d %H:%M:%S"),
-                    totalInstances = #LocalPlayer:GetDescendants()
-                },
-                _children = dumpInstance(LocalPlayer)._children
-            }
-            if Config.AutoSave then
-                saveToFile(data, "LocalPlayer_" .. os.time())
-            end
-            updateStatus("✅ LocalPlayer dumped!")
-        end)
-    
-    createButton(frame, "Dump StarterGui", UDim2.new(0, 195, 0, btnY), 
-        Color3.fromRGB(55, 45, 75), function()
-            updateStatus("Dumping StarterGui...")
-            local sg = game:GetService("StarterGui")
-            local data = {
-                Name = "StarterGui",
-                ClassName = "StarterGui",
-                _dumpInfo = {
-                    timestamp = os.time(),
-                    date = os.date("%Y-%m-%d %H:%M:%S"),
-                    totalInstances = #sg:GetDescendants()
-                },
-                _children = dumpInstance(sg)._children
-            }
-            if Config.AutoSave then
-                saveToFile(data, "StarterGui_" .. os.time())
-            end
-            updateStatus("✅ StarterGui dumped!")
-        end)
-    
-    btnY = btnY + 46
-    
-    createButton(frame, "📋 Copy Last JSON", UDim2.new(0, 10, 0, btnY), 
-        Color3.fromRGB(35, 75, 55), function()
-            if copyLastJSON() then
-                updateStatus("📋 Copied to clipboard!")
-            end
-        end)
-    
-    createButton(frame, "📁 List Dumps", UDim2.new(0, 195, 0, btnY), 
-        Color3.fromRGB(75, 55, 35), function()
-            updateStatus("Listing files...")
-            listDumps()
-            updateStatus("📁 Listed in console")
-        end)
-    
-    btnY = btnY + 46
-    
-    createButton(frame, "🧹 Clear Console", UDim2.new(0, 10, 0, btnY), 
-        Color3.fromRGB(60, 60, 60), function()
-            if rconsoleclear then
-                rconsoleclear()
-            end
-            updateStatus("Console cleared")
-        end)
-    
-    createButton(frame, "⚙️ Toggle AutoSave", UDim2.new(0, 195, 0, btnY), 
-        Color3.fromRGB(60, 60, 60), function()
-            Config.AutoSave = not Config.AutoSave
-            updateStatus("AutoSave: " .. tostring(Config.AutoSave))
-        end)
-    
-    -- Info Label
-    local info = Instance.new("TextLabel")
-    info.Text = "Folder: " .. Config.OutputFolder .. " | MaxDepth: " .. Config.MaxDepth
-    info.Size = UDim2.new(1, -20, 0, 20)
-    info.Position = UDim2.new(0, 10, 1, -30)
-    info.BackgroundTransparency = 1
-    info.TextColor3 = Color3.fromRGB(100, 100, 120)
-    info.Font = Enum.Font.Gotham
-    info.TextSize = 10
-    info.TextXAlignment = Enum.TextXAlignment.Left
-    info.Parent = frame
-    
-    log("✅ Delta Dumper UI Loaded!")
-    log("   Output: " .. Config.OutputFolder)
-end
-
--- ============================================
--- SECTION 6: QUICK FUNCTIONS (Global)
--- ============================================
-getgenv().DeltaDump = {
-    Config    = Config,
-    Dump      = dumpInstance,
-    Save      = saveToFile,
-    Copy      = copyLastJSON,
-    List      = listDumps,
-    JSON      = toJSON,
-    UI        = UI
+-- ============================================================
+-- ██████  SECTION: REMOTE HOOK  ██████
+-- ============================================================
+local Hook = {
+    Hooks = {},            -- {[remoteName/path] = { onCall, onReturn, block }}
+    BlockedRemotes = {},   -- {[remoteName/path] = true}
 }
+ReplicatedStorageDumper.RemoteHook = Hook
 
--- ============================================
--- INIT
--- ============================================
-if rconsolename then
-    rconsolename("Delta Dumper")
+function Hook:HookRemote(remoteName, options)
+    -- options: { onCall = fn(remote, method, args)→args, onReturn = fn(remote, method, ret)→ret, block = bool }
+    self.Hooks[remoteName] = options
+    if options.block then
+        self.BlockedRemotes[remoteName] = true
+    end
+    print(string.format("[RemoteHook] 🪝  Hook: %s | onCall:%s onReturn:%s block:%s",
+        remoteName,
+        options.onCall and "✅" or "❌",
+        options.onReturn and "✅" or "❌",
+        options.block and "🚫" or "✅"
+    ))
 end
 
-UI:Init()
+function Hook:Unhook(remoteName)
+    self.Hooks[remoteName] = nil
+    self.BlockedRemotes[remoteName] = nil
+    print(string.format("[RemoteHook] ❌ Unhook: %s", remoteName))
+end
 
-log("╔══════════════════════════════════════╗")
-log("║   Delta Dumper v2.0 - Ready!         ║")
-log("║   Type DeltaDump.List() in console   ║")
-log("╚══════════════════════════════════════╝")
+function Hook:Block(remoteName)
+    self.BlockedRemotes[remoteName] = true
+    print(string.format("[RemoteHook] 🚫  Block: %s", remoteName))
+end
+
+function Hook:Unblock(remoteName)
+    self.BlockedRemotes[remoteName] = nil
+    print(string.format("[RemoteHook] ✅ Unblock: %s", remoteName))
+end
+
+function Hook:ToggleBlock(remoteName)
+    if self.BlockedRemotes[remoteName] then
+        self:Unblock(remoteName)
+    else
+        self:Block(remoteName)
+    end
+end
+
+function Hook:BlockAll()
+    local remotes = ReplicatedStorageDumper.RemoteDump:FindAllRemotes()
+    for _, r in ipairs(remotes) do
+        self.BlockedRemotes[r.Name] = true
+    end
+    print(string.format("[RemoteHook] 🚫  Block All: %d remotes", #remotes))
+end
+
+function Hook:UnblockAll()
+    self.BlockedRemotes = {}
+    print("[RemoteHook] ✅ Unblock All")
+end
+
+function Hook:ListHooks()
+    local result = {}
+    for name, h in pairs(self.Hooks) do
+        table.insert(result, {
+            remote = name,
+            hasOnCall = h.onCall ~= nil,
+            hasOnReturn = h.onReturn ~= nil,
+            blocked = self.BlockedRemotes[name] == true,
+        })
+    end
+    return result
+end
+
+function Hook:ListBlocked()
+    local list = {}
+    for name, blocked in pairs(self.BlockedRemotes) do
+        if blocked then table.insert(list, name) end
+    end
+    table.sort(list)
+    return list
+end
+
+-- ============================================================
+-- ██████  SECTION: DUMP ALL REMOTES  ██████
+-- ============================================================
+local Dump = {
+    DefaultServices = {
+        "ReplicatedStorage",
+        "Workspace",
+        "StarterGui",
+        "StarterPack",
+        "StarterPlayerScripts",
+        "StarterCharacterScripts",
+        "Lighting",
+    },
+    _watchConnections = {},
+}
+ReplicatedStorageDumper.RemoteDump = Dump
+
+function Dump:FindRemotesInService(serviceName)
+    local ok, service = pcall(function() return game:GetService(serviceName) end)
+    if not ok then return {} end
+
+    local remotes = {}
+    for _, inst in ipairs(service:GetDescendants()) do
+        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") or inst:IsA("UnreliableRemoteEvent") then
+            table.insert(remotes, inst)
+        end
+    end
+    return remotes
+end
+
+function Dump:FindAllRemotes(services)
+    services = services or self.DefaultServices
+    local all = {}
+    for _, svcName in ipairs(services) do
+        local remotes = self:FindRemotesInService(svcName)
+        for _, r in ipairs(remotes) do table.insert(all, r) end
+    end
+    return all
+end
+
+function Dump:DumpAll(services, config)
+    services = services or self.DefaultServices
+    config = config or ReplicatedStorageDumper.Config
+
+    local report = {
+        timestamp = os.time(),
+        date = os.date("%Y-%m-%d %H:%M:%S"),
+        services = {},
+        summary = {
+            totalRemotes = 0,
+            remoteEvents = 0,
+            remoteFunctions = 0,
+            unreliableRemoteEvents = 0,
+        },
+        remotes = {},
+    }
+
+    for _, svcName in ipairs(services) do
+        local remotes = self:FindRemotesInService(svcName)
+        local svcData = { name = svcName, count = #remotes, remotes = {} }
+
+        for _, remote in ipairs(remotes) do
+            local ok, path = pcall(function() return remote:GetFullName() end)
+            local rData = {
+                name = remote.Name,
+                className = remote.ClassName,
+                path = ok and path or remote.Name,
+                parent = remote.Parent and remote.Parent.Name or "?",
+            }
+
+            if config.SaveAttributes then
+                local attrs = remote:GetAttributes()
+                if next(attrs) then rData.attributes = attrs end
+            end
+
+            local children = remote:GetChildren()
+            if #children > 0 then
+                rData.children = {}
+                for _, ch in ipairs(children) do
+                    table.insert(rData.children, { name = ch.Name, className = ch.ClassName })
+                end
+            end
+
+            table.insert(svcData.remotes, rData)
+            table.insert(report.remotes, rData)
+
+            report.summary.totalRemotes = report.summary.totalRemotes + 1
+            if remote.ClassName == "RemoteEvent" then
+                report.summary.remoteEvents = report.summary.remoteEvents + 1
+            elseif remote.ClassName == "RemoteFunction" then
+                report.summary.remoteFunctions = report.summary.remoteFunctions + 1
+            elseif remote.ClassName == "UnreliableRemoteEvent" then
+                report.summary.unreliableRemoteEvents = report.summary.unreliableRemoteEvents + 1
+            end
+        end
+
+        table.insert(report.services, svcData)
+    end
+
+    table.sort(report.remotes, function(a, b) return a.name:lower() < b.name:lower() end)
+    return report
+end
+
+function Dump:DumpAllJSON(services, config)
+    local report = self:DumpAll(services, config)
+    return ReplicatedStorageDumper.toJSON(report, true)
+end
+
+function Dump:SaveDump(services, config)
+    local report = self:DumpAll(services, config)
+    return ReplicatedStorageDumper.saveToFile(report, "RemoteDump_" .. os.time())
+end
+
+-- --- Group by Parent ---
+function Dump:GroupByParent(services)
+    local remotes = self:FindAllRemotes(services)
+    local groups = {}
+
+    for _, remote in ipairs(remotes) do
+        local parent = remote.Parent
+        local key = parent and parent:GetFullName() or "Unknown"
+        if not groups[key] then
+            groups[key] = { parentName = parent and parent.Name or "?", parentPath = key, remotes = {} }
+        end
+        table.insert(groups[key].remotes, { name = remote.Name, className = remote.ClassName })
+    end
+    return groups
+end
+
+-- --- Tree View ---
+function Dump:PrintTree(services)
+    local remotes = self:FindAllRemotes(services)
+    local tree = {}
+
+    for _, remote in ipairs(remotes) do
+        local ok, path = pcall(function() return remote:GetFullName() end)
+        local fullPath = ok and path or remote.Name
+        local parts = fullPath:split(".")
+        local current = tree
+
+        for i, part in ipairs(parts) do
+            if i == #parts then
+                -- leaf
+                local icon = remote:IsA("RemoteEvent") and "📡"
+                    or remote:IsA("RemoteFunction") and "📞"
+                    or "📶"
+                table.insert(current, { type = "remote", icon = icon, name = part, className = remote.ClassName })
+            else
+                -- folder
+                local found = nil
+                for _, node in ipairs(current) do
+                    if node.type == "folder" and node.name == part then found = node break end
+                end
+                if not found then
+                    found = { type = "folder", name = part, children = {} }
+                    table.insert(current, found)
+                end
+                current = found.children
+            end
+        end
+    end
+
+    local function printNode(node, indent)
+        indent = indent or ""
+        if node.type == "folder" then
+            print(indent .. "📁 " .. node.name .. "/")
+            for _, child in ipairs(node.children) do
+                printNode(child, indent .. "  ")
+            end
+        else
+            print(indent .. node.icon .. " " .. node.name .. "  [" .. node.className .. "]")
+        end
+    end
+
+    print("\n========== REMOTE TREE ==========")
+    for _, node in ipairs(tree) do
+        printNode(node)
+    end
+    print("=================================\n")
+end
+
+-- --- Watch for New Remotes ---
+function Dump:WatchForNewRemotes(callback, services)
+    services = services or self.DefaultServices
+
+    for _, conn in ipairs(self._watchConnections) do
+        conn:Disconnect()
+    end
+    self._watchConnections = {}
+
+    for _, svcName in ipairs(services) do
+        local ok, service = pcall(function() return game:GetService(svcName) end)
+        if ok then
+            local conn = service.DescendantAdded:Connect(function(desc)
+                if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") or desc:IsA("UnreliableRemoteEvent") then
+                    local info = {
+                        name = desc.Name,
+                        className = desc.ClassName,
+                        path = desc:GetFullName(),
+                        service = svcName,
+                        timestamp = os.clock(),
+                        time = os.date("%H:%M:%S"),
+                    }
+                    print(string.format("[RemoteDump] 🆕 New: %s (%s) → %s", desc.Name, desc.ClassName, info.path))
+                    if callback then pcall(callback, info) end
+                end
+            end)
+            table.insert(self._watchConnections, conn)
+        end
+    end
+
+    print(string.format("[RemoteDump] 👀 Watching %d services for new remotes", #services))
+    return self._watchConnections
+end
+
+function Dump:StopWatching()
+    for _, conn in ipairs(self._watchConnections) do
+        conn:Disconnect()
+    end
+    self._watchConnections = {}
+    print("[RemoteDump] ⏹️ Stopped watching")
+end
+
+-- ============================================================
+-- ██████  FULL SCAN (รวมทุกอย่าง)  ██████
+-- ============================================================
+function ReplicatedStorageDumper.FullScan(config)
+    config = config or ReplicatedStorageDumper.Config
+
+    print("\n╔══════════════════════════════════════════╗")
+    print("║     🚀  FULL SCAN — ReplicatedStorage     ║")
+    print("╚══════════════════════════════════════════╝")
+
+    -- 1. Dump Structure
+    local structure = ReplicatedStorageDumper.dumpReplicatedStorage(config)
+    print(string.format("  📦 Structure: %d instances", structure._dumpInfo.totalInstances))
+
+    -- 2. Dump All Remotes
+    local remoteReport = Dump:DumpAll(nil, config)
+    local s = remoteReport.summary
+    print(string.format("  📡 Remotes: %d total (Event:%d  Function:%d  Unreliable:%d)",
+        s.totalRemotes, s.remoteEvents, s.remoteFunctions, s.unreliableRemoteEvents))
+
+    -- 3. Print Remote Tree
+    Dump:PrintTree()
+
+    -- 4. Start Remote Spy (ถ้า Exploit Env)
+    if _isExploitEnv then
+        Spy:Start()
+        print("  🔍 RemoteSpy: ACTIVE")
+    else
+        print("  🔍 RemoteSpy: ⚠️ No Exploit API")
+    end
+
+    -- 5. Watch for new remotes
+    Dump:WatchForNewRemotes()
+    print("  👀 Auto-Watch: ACTIVE")
+
+    print("\n✅ Full Scan Complete!\n")
+
+    return {
+        structure = structure,
+        remotes = remoteReport,
+        spyActive = Spy.Enabled,
+        watching = true,
+    }
+end
+
+return ReplicatedStorageDumper
