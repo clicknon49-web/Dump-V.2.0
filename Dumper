@@ -458,23 +458,62 @@ function UI:Init()
         end)
     
     btnY = btnY + 46
-    
+
+    -- StarterPlayer Button (Full Width)
+    local spBtn = Instance.new("TextButton")
+    spBtn.Text = "Dump StarterPlayer"
+    spBtn.Size = UDim2.new(0, 360, 0, 36)
+    spBtn.Position = UDim2.new(0, 10, 0, btnY)
+    spBtn.BackgroundColor3 = Color3.fromRGB(55, 45, 75)
+    spBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    spBtn.Font = Enum.Font.GothamSemibold
+    spBtn.TextSize = 13
+    spBtn.BorderSizePixel = 0
+    spBtn.Parent = frame
+
+    local spCorner = Instance.new("UICorner")
+    spCorner.CornerRadius = UDim.new(0, 6)
+    spCorner.Parent = spBtn
+
+    spBtn.MouseButton1Click:Connect(function()
+        pcall(function()
+            updateStatus("Dumping StarterPlayer...")
+            local sp = game:GetService("StarterPlayer")
+            local data = {
+                Name = "StarterPlayer",
+                ClassName = "StarterPlayer",
+                _dumpInfo = {
+                    timestamp = os.time(),
+                    date = os.date("%Y-%m-%d %H:%M:%S"),
+                    totalInstances = #sp:GetDescendants()
+                },
+                _children = dumpInstance(sp)._children
+            }
+            if Config.AutoSave then
+                saveToFile(data, "StarterPlayer_" .. os.time())
+            end
+            updateStatus("✅ StarterPlayer dumped!")
+        end)
+    end)
+
+    btnY = btnY + 46
+
     createButton(frame, "📋 Copy Last JSON", UDim2.new(0, 10, 0, btnY), 
         Color3.fromRGB(35, 75, 55), function()
             if copyLastJSON() then
                 updateStatus("📋 Copied to clipboard!")
             end
         end)
-    
+
     createButton(frame, "📁 List Dumps", UDim2.new(0, 195, 0, btnY), 
         Color3.fromRGB(75, 55, 35), function()
             updateStatus("Listing files...")
             listDumps()
             updateStatus("📁 Listed in console")
         end)
-    
+
     btnY = btnY + 46
-    
+
     createButton(frame, "🧹 Clear Console", UDim2.new(0, 10, 0, btnY), 
         Color3.fromRGB(60, 60, 60), function()
             if rconsoleclear then
@@ -482,7 +521,7 @@ function UI:Init()
             end
             updateStatus("Console cleared")
         end)
-    
+
     createButton(frame, "⚙️ Toggle AutoSave", UDim2.new(0, 195, 0, btnY), 
         Color3.fromRGB(60, 60, 60), function()
             Config.AutoSave = not Config.AutoSave
