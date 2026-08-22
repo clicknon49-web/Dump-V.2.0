@@ -1,14 +1,14 @@
 -- ============================================
---  Mine a Mountain — DUPE Script (Delta Fix)
---  Executor: Delta / Arceus X / Fluxus
+--  Mine a Mountain — Full UI Script
+--  Executor: Delta (tested)
 --  Author: BluezyGPT
---  Ver: 2.0 — Fixed UI + pcall safety
 -- ============================================
 
+-- Services
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
@@ -24,65 +24,346 @@ local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
 -- ============================================
---  CONFIG — กดปุ่มลัดได้
+--  CONFIG
 -- ============================================
 local CONFIG = {
-    Enabled = false,
-    MaxDupes = 20,
-    DupeSpeed = 0.1,
-    WalkSpeed = 50,
-    JumpPower = 100,
-    Agnes 2.5 FlashCollect = true,
+    DupeEnabled = false,
+    DupeCount = 20,
+    DupeSpeed = 0.08,
+    Agnes 2.5 FlashCollect = false,
     Noclip = false,
     ESP = false,
+    WalkSpeed = 50,
+    JumpPower = 100,
 }
 
--- Apply stats
+-- Apply initial stats
 humanoid.WalkSpeed = CONFIG.WalkSpeed
 humanoid.JumpPower = CONFIG.JumpPower
 
 -- ============================================
---  NOTIFICATION SYSTEM (แทน UI)
+--  NOTIFICATION
 -- ============================================
-local function notify(msg, color)
+local function notify(text, color)
     color = color or Color3.fromRGB(255, 255, 255)
     
-    -- สร้าง notification บนจอ
-    local notif = Instance.new("Frame")
-    notif.Size = UDim2.new(0, 350, 0, 45)
-    notif.Position = UDim2.new(0.5, -175, 0, 80)
-    notif.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-    notif.BorderSizePixel = 0
-    notif.Parent = player:WaitForChild("PlayerGui")
+    local gui = Instance.new("ScreenGui")
+    gui.ResetOnSpawn = false
+    gui.Parent = player:WaitForChild("PlayerGui")
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 380, 0, 48)
+    frame.Position = UDim2.new(0.5, -190, 0, 90)
+    frame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
     
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = notif
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = frame
     
-    local border = Instance.new("UIStroke")
-    border.Color = color
-    border.Thickness = 2
-    border.Parent = notif
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color
+    stroke.Thickness = 2
+    stroke.Parent = frame
     
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
-    label.Text = "🍆 " .. msg
+    label.Text = "🍆 " .. text
     label.TextColor3 = color
     label.TextSize = 14
     label.Font = Enum.Font.GothamBold
-    label.Parent = notif
+    label.Parent = frame
     
     -- Fade in
-    notif.BackgroundTransparency = 1
-    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad)
-    game:GetService("TweenService"):Create(notif, tweenInfo, {BackgroundTransparency = 0}):Play()
+    frame.BackgroundTransparency = 1
+    TweenService:Create(frame, TweenInfo.new(0.25), {BackgroundTransparency = 0}):Play()
     
-    -- Fade out & destroy after 3s
-    task.delay(3, function()
-        game:GetService("TweenService"):Create(notif, tweenInfo, {BackgroundTransparency = 1}):Play()
+    task.delay(2.5, function()
+        TweenService:Create(frame, TweenInfo.new(0.25), {BackgroundTransparency = 1}):Play()
         task.wait(0.3)
-        notif:Destroy()
+        gui:Destroy()
+    end)
+end
+
+-- ============================================
+--  UI SYSTEM
+-- ============================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BluezyGPT_UI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 100
+ScreenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 340, 0, 480)
+MainFrame.Position = UDim2.new(0.5, -170, 0.5, -240)
+MainFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+
+local MFCorner = Instance.new("UICorner")
+MFCorner.CornerRadius = UDim.new(0, 14)
+MFCorner.Parent = MainFrame
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 44)
+Header.BackgroundColor3 = Color3.fromRGB(255, 0, 128)
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+local HCorner = Instance.new("UICorner")
+HCorner.CornerRadius = UDim.new(0, 14)
+HCorner.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "🍆 BluezyGPT — Mine a Mountain"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 15
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+CloseBtn.Position = UDim2.new(1, -38, 0, 6)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(255, 60, 90)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 14
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = Header
+local CBCorner = Instance.new("UICorner")
+CBCorner.CornerRadius = UDim.new(0, 8)
+CBCorner.Parent = CloseBtn
+CloseBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    notify("UI ปิดแล้ว — กด INSERT เพื่อเปิด", Color3.fromRGB(150, 150, 170))
+end)
+
+-- Drag functionality
+local dragging = false
+local dragInput, mousePos, framePos
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        mousePos = input.Position
+        framePos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+Header.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - mousePos
+        MainFrame.Position = UDim2.new(
+            framePos.X.Scale,
+            framePos.X.Offset + delta.X,
+            framePos.Y.Scale,
+            framePos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- ScrollingFrame
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -16, 1, -54)
+Scroll.Position = UDim2.new(0, 8, 0, 50)
+Scroll.BackgroundTransparency = 1
+Scroll.ScrollBarThickness = 5
+Scroll.ScrollBarImageColor3 = Color3.fromRGB(255, 0, 128)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = MainFrame
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 5)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = Scroll
+
+local Padding = Instance.new("UIPadding")
+Padding.PaddingLeft = UDim.new(0, 6)
+Padding.PaddingRight = UDim.new(0, 6)
+Padding.PaddingTop = UDim.new(0, 4)
+Padding.PaddingBottom = UDim.new(0, 4)
+Padding.Parent = Scroll
+
+-- ============================================
+--  UI HELPERS
+-- ============================================
+local function createToggle(name, default, order, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 38)
+    Container.BackgroundColor3 = Color3.fromRGB(32, 32, 48)
+    Container.BorderSizePixel = 0
+    Container.LayoutOrder = order
+    Container.Parent = Scroll
+    local CC = Instance.new("UICorner")
+    CC.CornerRadius = UDim.new(0, 8)
+    CC.Parent = Container
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.62, 0, 1, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(220, 220, 235)
+    Label.TextSize = 13
+    Label.Font = Enum.Font.Gotham
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Container
+    
+    local Toggle = Instance.new("Frame")
+    Toggle.Size = UDim2.new(0, 48, 0, 26)
+    Toggle.Position = UDim2.new(1, -54, 0.5, -13)
+    Toggle.BackgroundColor3 = default and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(70, 70, 85)
+    Toggle.Parent = Container
+    local TC = Instance.new("UICorner")
+    TC.CornerRadius = UDim.new(0, 6)
+    TC.Parent = Toggle
+    
+    local Indicator = Instance.new("Frame")
+    Indicator.Size = UDim2.new(0, 22, 0, 22)
+    Indicator.Position = default and UDim2.new(1, -24, 0, 2) or UDim2.new(0, 2, 0, 2)
+    Indicator.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Indicator.Parent = Toggle
+    local IC = Instance.new("UICorner")
+    IC.CornerRadius = UDim.new(0, 5)
+    IC.Parent = Indicator
+    
+    local state = default
+    Toggle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            state = not state
+            Toggle.BackgroundColor3 = state and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(70, 70, 85)
+            Indicator:TweenPosition(
+                state and UDim2.new(1, -24, 0, 2) or UDim2.new(0, 2, 0, 2),
+                "Out", "Quad", 0.2, true
+            )
+            callback(state)
+        end
+    end)
+end
+
+local function createSlider(name, min, max, default, order, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 52)
+    Container.BackgroundColor3 = Color3.fromRGB(32, 32, 48)
+    Container.BorderSizePixel = 0
+    Container.LayoutOrder = order
+    Container.Parent = Scroll
+    local CC = Instance.new("UICorner")
+    CC.CornerRadius = UDim.new(0, 8)
+    CC.Parent = Container
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -10, 0, 20)
+    Label.Position = UDim2.new(0, 8, 0, 4)
+    Label.BackgroundTransparency = 1
+    Label.Text = name .. ": " .. tostring(default)
+    Label.TextColor3 = Color3.fromRGB(220, 220, 235)
+    Label.TextSize = 12
+    Label.Font = Enum.Font.Gotham
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Container
+    
+    local SliderBG = Instance.new("Frame")
+    SliderBG.Size = UDim2.new(1, -20, 0, 10)
+    SliderBG.Position = UDim2.new(0, 10, 0, 30)
+    SliderBG.BackgroundColor3 = Color3.fromRGB(55, 55, 75)
+    SliderBG.Parent = Container
+    local SC = Instance.new("UICorner")
+    SC.CornerRadius = UDim.new(0, 5)
+    SC.Parent = SliderBG
+    
+    local SliderFill = Instance.new("Frame")
+    SliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    SliderFill.BackgroundColor3 = Color3.fromRGB(255, 0, 128)
+    SliderFill.Parent = SliderBG
+    local SFC = Instance.new("UICorner")
+    SFC.CornerRadius = UDim.new(0, 5)
+    SFC.Parent = SliderFill
+    
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 18, 0, 18)
+    Knob.Position = UDim2.new((default - min) / (max - min), -9, 0, -4)
+    Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Knob.Parent = SliderBG
+    local KC = Instance.new("UICorner")
+    KC.CornerRadius = UDim.new(1, 0)
+    KC.Parent = Knob
+    
+    local sliding = false
+    local function update(input)
+        local relX = input.Position.X - SliderBG.AbsolutePosition.X
+        local pct = math.clamp(relX / SliderBG.AbsoluteSize.X, 0, 1)
+        local val = math.floor(pct * (max - min) + min)
+        
+        SliderFill:TweenSize(UDim2.new(pct, 0, 1, 0), "Out", "Quad", 0.1, true)
+        Knob:TweenPosition(UDim2.new(pct, 0, 0, -4), "Out", "Quad", 0.1, true, function()
+            Label.Text = name .. ": " .. tostring(val)
+            callback(val)
+        end)
+    end
+    
+    SliderBG.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliding = true
+            update(input)
+        end
+    end)
+    SliderBG.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliding = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input)
+        end
+    end)
+end
+
+local function createButton(name, color, order, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(1, 0, 0, 38)
+    Container.BackgroundColor3 = Color3.fromRGB(32, 32, 48)
+    Container.BorderSizePixel = 0
+    Container.LayoutOrder = order
+    Container.Parent = Scroll
+    local CC = Instance.new("UICorner")
+    CC.CornerRadius = UDim.new(0, 8)
+    CC.Parent = Container
+    
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, -12, 1, -8)
+    Btn.Position = UDim2.new(0, 6, 0, 4)
+    Btn.BackgroundColor3 = color or Color3.fromRGB(255, 0, 128)
+    Btn.Text = name
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.TextSize = 13
+    Btn.Font = Enum.Font.GothamBold
+    Btn.Parent = Container
+    local BC = Instance.new("UICorner")
+    BC.CornerRadius = UDim.new(0, 8)
+    BC.Parent = Btn
+    
+    Btn.MouseButton1Click:Connect(function()
+        callback()
     end)
 end
 
@@ -99,41 +380,37 @@ local function getTool()
     return nil
 end
 
-local function createDupe()
+local function startDupe()
     local tool = getTool()
     if not tool then
-        notify("ไม่มี Tool ในมือ! จับ pickaxe ก่อน", Color3.fromRGB(255, 100, 100))
-        return
+        notify("ไม่มี Tool! จับ pickaxe ก่อน", Color3.fromRGB(255, 80, 80))
+        return false
     end
     
-    notify("เริ่ม Dupe! กด Tool เพื่อสร้าง", Color3.fromRGB(0, 255, 150))
+    if dupeConn then dupeConn:Disconnect() end
     
     dupeConn = tool.Activated:Connect(function()
-        if not CONFIG.Enabled then return end
+        if not CONFIG.DupeEnabled then return end
         
-        local originalCFrame = rootPart.CFrame
+        local origin = rootPart.CFrame
         local count = 0
         
-        for i = 1, CONFIG.MaxDupes do
-            if not CONFIG.Enabled then break end
+        for i = 1, CONFIG.DupeCount do
+            if not CONFIG.DupeEnabled then break end
             
             local dupe = character:Clone()
             dupe.Name = "Dupe_" .. i
             dupe.Parent = workspace
             
-            -- Offset สุ่ม
-            local offset = CFrame.new(
-                math.random(-2, 2),
-                math.random(0, 1),
-                math.random(-2, 2)
-            )
-            
             local hrp = dupe:FindFirstChild("HumanoidRootPart")
             if hrp then
-                hrp.CFrame = originalCFrame * offset
+                hrp.CFrame = origin * CFrame.new(
+                    math.random(-3, 3),
+                    math.random(0, 2),
+                    math.random(-3, 3)
+                )
             end
             
-            -- Disable humanoid
             local h = dupe:FindFirstChild("Humanoid")
             if h then
                 h.WalkSpeed = 0
@@ -142,14 +419,14 @@ local function createDupe()
             
             table.insert(dupeParts, dupe)
             count = count + 1
-            
             task.wait(CONFIG.DupeSpeed)
         end
         
-        notify("สร้าง Dupe: " .. count .. " ตัว", Color3.fromRGB(0, 200, 255))
+        notify("สร้าง Dupe: " .. count .. " ตัว", Color3.fromRGB(0, 255, 200))
     end)
     
-    notify("Dupe Active — กด Tool เพื่อสร้าง!", Color3.fromRGB(0, 255, 150))
+    notify("Dupe Mode: ON — กด Tool เพื่อสร้าง!", Color3.fromRGB(0, 255, 150))
+    return true
 end
 
 local function clearDupes()
@@ -157,15 +434,11 @@ local function clearDupes()
         dupeConn:Disconnect()
         dupeConn = nil
     end
-    
-    for _, dupe in ipairs(dupeParts) do
-        if dupe and dupe.Parent then
-            dupe:Destroy()
-        end
+    for _, d in ipairs(dupeParts) do
+        if d and d.Parent then d:Destroy() end
     end
     dupeParts = {}
-    
-    notify("ล้าง Dupe ทั้งหมดแล้ว", Color3.fromRGB(255, 100, 100))
+    notify("ล้าง Dupe ทั้งหมด", Color3.fromRGB(255, 100, 100))
 end
 
 -- ============================================
@@ -173,25 +446,26 @@ end
 -- ============================================
 local Agnes 2.5 FlashCollectConn = nil
 
-local function startAgnes 2.5 FlashCollect()
-    if Agnes 2.5 FlashCollectConn then Agnes 2.5 FlashCollectConn:Disconnect() end
+local function toggleAgnes 2.5 FlashCollect(enabled)
+    if Agnes 2.5 FlashCollectConn then
+        Agnes 2.5 FlashCollectConn:Disconnect()
+        Agnes 2.5 FlashCollectConn = nil
+    end
+    
+    if not enabled then return end
     
     Agnes 2.5 FlashCollectConn = workspace.ChildAdded:Connect(function(child)
         if not CONFIG.Agnes 2.5 FlashCollect then return end
-        
         local hrp = rootPart
         if not hrp then return end
         
-        -- Check if collectible
-        local isCollectible = false
         for _, part in ipairs(child:GetDescendants()) do
             if part:IsA("BasePart") and part.Transparency < 1 then
                 local dist = (part.Position - hrp.Position).Magnitude
-                if dist < 25 then
+                if dist < 30 then
                     part.CFrame = hrp.CFrame * CFrame.new(0, 1.5, 0)
-                    isCollectible = true
-                    break
                 end
+                break
             end
         end
     end)
@@ -202,28 +476,22 @@ end
 -- ============================================
 local noclipConn = nil
 
-local function setNoclip(enabled)
+local function toggleNoclip(enabled)
     if noclipConn then
         noclipConn:Disconnect()
         noclipConn = nil
     end
     
     if not enabled then
-        -- Restore collision
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
+        for _, p in ipairs(character:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = true end
         end
         return
     end
     
     noclipConn = RunService.Stepped:Connect(function()
-        if not CONFIG.Noclip then return end
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
+        for _, p in ipairs(character:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
         end
     end)
 end
@@ -233,29 +501,27 @@ end
 -- ============================================
 local espConn = nil
 
-local function toggleESP()
+local function toggleESP(enabled)
     if espConn then
         espConn:Disconnect()
         espConn = nil
     end
     
-    -- Remove existing
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "BluezyESP_Box" then obj:Destroy() end
+        if obj.Name == "BZESP" then obj:Destroy() end
     end
     
-    if not CONFIG.ESP then return end
+    if not enabled then return end
     
     espConn = RunService.RenderStepped:Connect(function()
         for _, obj in ipairs(workspace:GetChildren()) do
             if obj:IsA("Model") and obj ~= character then
                 local hrp = obj:FindFirstChild("HumanoidRootPart")
                 local hum = obj:FindFirstChild("Humanoid")
-                
                 if hrp and hum and hum.Health > 0 then
-                    if not obj:FindFirstChild("BluezyESP_Box") then
+                    if not hrp:FindFirstChild("BZESP") then
                         local box = Instance.new("SelectionBox")
-                        box.Name = "BluezyESP_Box"
+                        box.Name = "BZESP"
                         box.LineThickness = 2
                         box.Color = Color3.fromRGB(255, 0, 128)
                         box.Adornee = hrp
@@ -268,73 +534,104 @@ local function toggleESP()
 end
 
 -- ============================================
---  KEY BINDS — กดปุ่มลัด
+--  BUTTONS
 -- ============================================
-local keyBinds = {
-    [Enum.KeyCode.F] = function()
-        CONFIG.Enabled = not CONFIG.Enabled
-        if CONFIG.Enabled then
-            createDupe()
-            notify("Dupe: ON (กด F ปิด)", Color3.fromRGB(0, 255, 150))
-        else
-            clearDupes()
-            notify("Dupe: OFF", Color3.fromRGB(255, 100, 100))
+local function killAll()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            local c = p.Character
+            if c then c:Destroy() end
         end
-    end,
-    
-    [Enum.KeyCode.G] = function()
-        clearDupes()
-        notify("ล้าง Dupe ทั้งหมด (G)", Color3.fromRGB(255, 150, 0))
-    end,
-    
-    [Enum.KeyCode.H] = function()
-        CONFIG.Agnes 2.5 FlashCollect = not CONFIG.Agnes 2.5 FlashCollect
-        if CONFIG.Agnes 2.5 FlashCollect then
-            startAgnes 2.5 FlashCollect()
-            notify("Agnes 2.5 Flash Collect: ON (กด H ปิด)", Color3.fromRGB(0, 200, 255))
-        else
-            notify("Agnes 2.5 Flash Collect: OFF", Color3.fromRGB(150, 150, 150))
-        end
-    end,
-    
-    [Enum.KeyCode.J] = function()
-        CONFIG.Noclip = not CONFIG.Noclip
-        setNoclip(CONFIG.Noclip)
-        notify("Noclip: " .. tostring(CONFIG.Noclip) .. " (กด J)", Color3.fromRGB(200, 200, 200))
-    end,
-    
-    [Enum.KeyCode.K] = function()
-        CONFIG.ESP = not CONFIG.ESP
-        toggleESP()
-        notify("ESP: " .. tostring(CONFIG.ESP) .. " (กด K)", Color3.fromRGB(255, 0, 128))
-    end,
-    
-    [Enum.KeyCode.L] = function()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= player then
-                local c = p.Character
-                if c then
-                    c:Destroy()
-                end
-            end
-        end
-        notify("Kill All — Done!", Color3.fromRGB(255, 50, 50))
-    end,
-    
-    [Enum.KeyCode.Semicolon] = function()
-        -- ; = Teleport to mouse
-        local target = mouse.Target
-        if target then
-            rootPart.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0))
-            notify("Teleport!", Color3.fromRGB(100, 255, 100))
-        end
-    end,
-}
+    end
+    notify("Kill All — Done!", Color3.fromRGB(255, 50, 50))
+end
 
+local function teleportToMouse()
+    local target = mouse.Target
+    if target then
+        rootPart.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0))
+        notify("Teleport!", Color3.fromRGB(100, 255, 100))
+    end
+end
+
+local function respawn()
+    humanoid.Health = 0
+    notify("Respawned!", Color3.fromRGB(200, 200, 200))
+end
+
+-- ============================================
+--  BUILD UI
+-- ============================================
+createToggle("⛏️ Dupe Mode", false, 1, function(state)
+    CONFIG.DupeEnabled = state
+    if state then
+        startDupe()
+    else
+        clearDupes()
+    end
+end)
+
+createSlider("จำนวน Dupe", 1, 100, CONFIG.DupeCount, 2, function(v)
+    CONFIG.DupeCount = v
+end)
+
+createSlider("ความเร็ว Dupe", 1, 50, math.floor(CONFIG.DupeSpeed * 100), 3, function(v)
+    CONFIG.DupeSpeed = v / 100
+end)
+
+createToggle("🧲 Agnes 2.5 Flash Collect", false, 4, function(state)
+    CONFIG.Agnes 2.5 FlashCollect = state
+    toggleAgnes 2.5 FlashCollect(state)
+end)
+
+createToggle("👻 Noclip", false, 5, function(state)
+    CONFIG.Noclip = state
+    toggleNoclip(state)
+end)
+
+createToggle("👁️ ESP", false, 6, function(state)
+    CONFIG.ESP = state
+    toggleESP(state)
+end)
+
+createSlider("WalkSpeed", 16, 200, CONFIG.WalkSpeed, 7, function(v)
+    CONFIG.WalkSpeed = v
+    humanoid.WalkSpeed = v
+end)
+
+createSlider("JumpPower", 50, 300, CONFIG.JumpPower, 8, function(v)
+    CONFIG.JumpPower = v
+    humanoid.JumpPower = v
+end)
+
+createButton("💀 Kill All Players", Color3.fromRGB(255, 50, 60), 9, killAll)
+createButton("📍 Teleport to Mouse", Color3.fromRGB(60, 200, 100), 10, teleportToMouse)
+createButton("🔄 Respawn Character", Color3.fromRGB(100, 150, 255), 11, respawn)
+createButton("🗑️ Clear All Dupes", Color3.fromRGB(255, 120, 50), 12, clearDupes)
+
+-- Footer
+local Footer = Instance.new("TextLabel")
+Footer.Size = UDim2.new(1, 0, 0, 18)
+Footer.Position = UDim2.new(0, 0, 1, -18)
+Footer.BackgroundTransparency = 1
+Footer.Text = "Made by BluezyGPT 💜"
+Footer.TextColor3 = Color3.fromRGB(130, 130, 150)
+Footer.TextSize = 10
+Footer.Font = Enum.Font.Gotham
+Footer.Parent = MainFrame
+
+-- ============================================
+--  TOGGLE KEY — INSERT
+-- ============================================
+local uiOpen = false
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if keyBinds[input.KeyCode] then
-        keyBinds[input.KeyCode]()
+    if input.KeyCode == Enum.KeyCode.Insert then
+        uiOpen = not uiOpen
+        MainFrame.Visible = uiOpen
+        if uiOpen then
+            notify("UI เปิดแล้ว — กด INSERT อีกทีเพื่อปิด", Color3.fromRGB(255, 0, 128))
+        end
     end
 end)
 
@@ -342,10 +639,8 @@ end)
 --  STARTUP
 -- ============================================
 notify("Mine a Mountain — BluezyGPT Script Loaded!", Color3.fromRGB(255, 0, 128))
-notify("F=Dupe | G=Clear | H=Agnes 2.5 Flash | J=Noclip | K=ESP | L=Kill | ;=TP", Color3.fromRGB(200, 200, 200))
+notify("กด INSERT เพื่อเปิด UI", Color3.fromRGB(200, 200, 200))
 
-if CONFIG.Agnes 2.5 FlashCollect then
-    startAgnes 2.5 FlashCollect()
-end
+if CONFIG.Agnes 2.5 FlashCollect then toggleAgnes 2.5 FlashCollect(true) end
 
-print("[BluezyGPT] Script ready. กด F เพื่อเริ่ม Dupe!")
+print("[BluezyGPT] Ready. กด INSERT เพื่อเปิดเมนู!")
